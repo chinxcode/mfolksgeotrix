@@ -24,8 +24,7 @@ interface Props {
 ---
 
 <section 
-  class="product-reel-root relative w-full bg-neutral-50 dark:bg-neutral-950 transition-colors duration-500" 
-  style={`height: ${(tabs.length + 2) * 100}vh;`}
+  class="product-reel-root relative w-full bg-neutral-50 dark:bg-neutral-950 transition-colors duration-500 min-h-screen"
 >
   <!-- Sticky Viewport -->
   <div class="sticky top-0 h-screen w-full overflow-hidden flex items-center">
@@ -115,10 +114,16 @@ interface Props {
       </div>
     </div>
 
-    <!-- Scroll Indicator -->
-    <div class="absolute bottom-10 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-2">
-        <span class="text-xs font-black text-white/40 uppercase tracking-[0.3em]">Scroll to Explore</span>
-        <div class="w-px h-12 bg-gradient-to-b from-orange-500 to-transparent"></div>
+
+    <!-- Pagination Indicator -->
+    <div class="absolute bottom-10 left-1/2 -translate-x-1/2 z-20 flex gap-2">
+      {tabs.map((_, index) => (
+        <button 
+          class="w-2 h-2 rounded-full transition-all duration-300 bg-white/30 reel-dot"
+          data-index={index}
+          aria-label={`Go to slide ${index + 1}`}
+        ></button>
+      ))}
     </div>
   </div>
 </section>
@@ -132,29 +137,19 @@ interface Props {
     const cards = root.querySelectorAll('.reel-card');
     const bgImgs = root.querySelectorAll('.reel-bg-img');
     const infos = root.querySelectorAll('.reel-info');
+    const dots = root.querySelectorAll('.reel-dot');
     const total = cards.length;
+    
+    let activeIndex = 0;
+    let autoplayInterval: any = null;
 
-    function updateReel() {
-      const rect = root.getBoundingClientRect();
-      const viewportHeight = window.innerHeight;
-      const scrolled = -rect.top;
-      const totalScrollable = rect.height - viewportHeight;
+    function goToSlide(index: number) {
+      activeIndex = (index + total) % total;
       
-      // Normalized progress (0 to 1)
-      let progress = scrolled / totalScrollable;
-      progress = Math.max(0, Math.min(1, progress));
-
-      // Active index based on scroll - use a more centered detection
-      const activeIndex = Math.min(Math.floor(progress * total), total - 1);
-
-      // PERFECT CENTERING LOGIC:
-      // We calculate the offset needed to move the active card to the center of the track container
+      // Calculate offset to center the active card
       const trackHeight = track.offsetHeight;
       const cardHeight = (cards[0] as HTMLElement).offsetHeight;
       const gap = 48; // Matches gap-12 (3rem = 48px)
-      
-      // Target position: (viewportMiddle - cardMiddle)
-      // Since tracks is inside a centered container, we offset based on item index
       const itemOffset = activeIndex * (cardHeight + gap);
       const centerOffset = -itemOffset + (trackHeight / 2) - (cardHeight / 2);
       
@@ -165,37 +160,21 @@ interface Props {
         const glow = el.querySelector('.reel-glow') as HTMLElement;
         const inner = el.firstElementChild as HTMLElement;
         
-        // Calculate relative distance from focus
-        const itemPoint = i / (total - 1);
-        let distance = Math.abs(progress - itemPoint) * total;
-        
-        // MAGNETIC "DWELL" ZONE:
-        // If distance is small, we force it to 0 so it stays scale and opaque
-        if (distance < 0.25) {
-          distance = 0;
-        } else {
-          // Adjust the transition ramp outside the dwell zone
-          distance = (distance - 0.25) * 1.33;
-        }
-        
-        // Scale logic: biggest at focal point
-        let scale = 1.25 - (distance * 0.25);
-        scale = Math.max(0.7, scale);
-
-        // Opacity logic
-        let opacity = 1 - (distance * 0.6);
-        opacity = Math.max(0.15, opacity);
-
-        // Applying transforms
-        el.style.transform = `scale(${scale})`;
-        el.style.opacity = opacity.toString();
-        
         if (i === activeIndex) {
+            el.style.transform = `scale(1.1)`;
+            el.style.opacity = '1';
             glow.style.opacity = '0.4';
             inner.style.borderColor = 'rgba(249, 115, 22, 0.6)';
             inner.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
             inner.style.boxShadow = '0 20px 40px -10px rgba(0,0,0,0.3)';
         } else {
+            // Further away slides are smaller and more transparent
+            const distance = Math.abs(i - activeIndex);
+            const scale = Math.max(0.7, 1 - (distance * 0.15));
+            const opacity = Math.max(0.3, 1 - (distance * 0.4));
+            
+            el.style.transform = `scale(${scale})`;
+            el.style.opacity = opacity.toString();
             glow.style.opacity = '0';
             inner.style.borderColor = 'rgba(255, 255, 255, 0.1)';
             inner.style.backgroundColor = 'rgba(255, 255, 255, 0.05)';
@@ -221,73 +200,60 @@ interface Props {
             el.style.pointerEvents = 'none';
         }
       });
-    }
-
-    let ticking = false;
-    let scrollTimeout: any = null;
-    let isAutoScrolling = false;
-
-    // Magnetic Snapping Logic
-    function handleSnap() {
-      if (isAutoScrolling) return;
-
-      const rect = root.getBoundingClientRect();
-      const viewportHeight = window.innerHeight;
-      const scrolled = -rect.top;
-      const totalScrollable = rect.height - viewportHeight;
-
-      // Only snap if we are within the reel's scroll boundaries
-      // (with a small buffer to allow entering/exiting)
-      if (scrolled < 50 || scrolled > totalScrollable - 50) return;
-
-      const progress = Math.max(0, Math.min(1, scrolled / totalScrollable));
-      const targetIndex = Math.round(progress * (total - 1));
-      const targetScroll = root.offsetTop + (targetIndex / (total - 1)) * totalScrollable;
-
-      // Only snap if we aren't already very close to the target
-      if (Math.abs(window.scrollY - targetScroll) < 10) return;
-
-      isAutoScrolling = true;
-      window.scrollTo({
-        top: targetScroll,
-        behavior: 'smooth'
+      
+      // Update dots
+      dots.forEach((dot, i) => {
+        const el = dot as HTMLElement;
+        if (i === activeIndex) {
+          el.className = "w-8 h-2 rounded-full transition-all duration-300 bg-orange-500 reel-dot";
+        } else {
+          el.className = "w-2 h-2 rounded-full transition-all duration-300 bg-white/30 hover:bg-white/50 cursor-pointer reel-dot";
+        }
       });
-
-      // Unlock after the smooth scroll is likely finished
-      setTimeout(() => {
-        isAutoScrolling = false;
-      }, 700);
     }
 
-    window.addEventListener('scroll', () => {
-      // Regular visual updates
-      if (!ticking) {
-        window.requestAnimationFrame(() => {
-          updateReel();
-          ticking = false;
-        });
-        ticking = true;
+    function startAutoplay() {
+      stopAutoplay();
+      autoplayInterval = setInterval(() => {
+        goToSlide(activeIndex + 1);
+      }, 3000);
+    }
+    
+    function stopAutoplay() {
+      if (autoplayInterval) {
+        clearInterval(autoplayInterval);
       }
+    }
 
-      // Debounced snapping
-      clearTimeout(scrollTimeout);
-      if (!isAutoScrolling) {
-        scrollTimeout = setTimeout(handleSnap, 150); // Small pause before magnetic pull
-      }
-    });
-
-    // Handle clicks on cards to jump to section
+    // Handle clicks on cards
     cards.forEach((card, i) => {
         card.addEventListener('click', () => {
-            const dest = (i / total) * (root.offsetHeight - window.innerHeight);
-            window.scrollTo({
-                top: root.offsetTop + dest + 10,
-                behavior: 'smooth'
-            });
+            goToSlide(i);
+            startAutoplay(); // Reset timer
+        });
+        
+        // Pause on hover
+        card.addEventListener('mouseenter', stopAutoplay);
+        card.addEventListener('mouseleave', startAutoplay);
+    });
+    
+    // Handle clicks on info panels (pause on hover)
+    infos.forEach((info) => {
+        info.addEventListener('mouseenter', stopAutoplay);
+        info.addEventListener('mouseleave', startAutoplay);
+    });
+    
+    // Handle clicks on dots
+    dots.forEach((dot, i) => {
+        dot.addEventListener('click', () => {
+            goToSlide(i);
+            startAutoplay(); // Reset timer
         });
     });
 
-    updateReel();
+    // Initialize
+    goToSlide(0);
+    startAutoplay();
   }
 
   document.addEventListener('astro:page-load', initProductReel);
